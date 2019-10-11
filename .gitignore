@@ -1,1 +1,9 @@
 *.pyc
+
+# vim
+.*.swp
+
+# Tex
+*.aux
+report.log
+*.out

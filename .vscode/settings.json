@@ -1,9 +1,0 @@
-{
-    "python.formatting.formatOnSave": true,
-    "files.associations": {
-        "*.cu": "cpp",
-        "*.hu": "cpp",
-        "*.cuh": "cpp",
-        "chrono": "cpp"
-    }
-}
