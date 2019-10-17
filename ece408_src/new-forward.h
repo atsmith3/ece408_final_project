@@ -26,7 +26,6 @@ void forward(mshadow::Tensor<cpu, 4, DType> &y, const mshadow::Tensor<cpu, 4, DT
   const int W = x.shape_[3] - K + 1;
 
   for(int b = 0; b < B; ++b) {
-    //CHECK_EQ(0,1) << "Remove this line and replace it with your implementation.";
     for(int m = 0; m < M; m++) {
       for(int h = 0; h < H; h++) {
         for(int w = 0; w < W; w++) {
