@@ -44,11 +44,13 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
       // Do Convolution:
       for(int b = 0; b < B; ++b) {
         for(int m = 0; m < M; m++) {
-          y[b][m][y_out][x_out] = 0;
+          //y[b][m][y_out][x_out] = 0;
+          y4d(b,m,y_out,x_out) = 0;
           for(int c = 0; c < C; c++) {
             for(int p = 0; p < K; p++) {
               for(int q = 0; q < K; q++) {
-                y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
+                //y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
+                y4d(b,m,y_out,x_out) += x4d(b,c,y_out+p,x_out+q) * k4d(m,c,p,q);
               }
             }
           }
@@ -74,13 +76,13 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   // Use mxnet's CHECK_EQ to do assertions.
   // Remove this assertion when you do your implementation!
-  CHECK_EQ(0, 1) << "Remove this line and replace with your implementation";
+  // CHECK_EQ(0, 1) << "Remove this line and replace with your implementation";
 
   // Extract the tensor dimensions into B,M,C,H,W,K
   const int B = x.shape_[0];
   const int M = y.shape_[1];
   const int C = x.shape_[1];
-  const int K = k.shape_[3];
+  const int K = w.shape_[3];
   const int H = x.shape_[2];
   const int W = x.shape_[3];
 
@@ -88,11 +90,12 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   const int block = BLOCK + 2*radius;
 
   // Set the kernel dimensions
-  dim3 gridDim(ceil((float)(W-2*radius)/(BLOCK), ceil((float)(H-2*radius)/(BLOCK))), 1);
+  dim3 gridDim(ceil((float)(W-2*radius)/(BLOCK)), ceil((float)(H-2*radius)/(BLOCK)), 1);
   dim3 blockDim(block, block, 1);
 
   // Call the kernel
-  forward_kernel<<<gridDim, blockDim, 0, s>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
+  //forward_kernel<<<gridDim, blockDim, 0, s>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
+  forward_kernel<<<gridDim, blockDim>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
 
   // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
