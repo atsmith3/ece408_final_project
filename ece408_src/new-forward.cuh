@@ -37,10 +37,10 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 #define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 
   // Verify Output is Valid
-  if((x_out > 0 && x_out < W_out) && (y_out > 0 && y_out < H_out)) {
+  if((x_out >= 0 && x_out < W_out) && (y_out >= 0 && y_out < H_out)) {
     // Check if the thread is a halo thread
-    if(((threadIdx.x - radius) > 0 && (threadIdx.x - radius) < BLOCK) &&
-       ((threadIdx.y - radius) > 0 && (threadIdx.y - radius) < BLOCK)) {
+    if(((threadIdx.x - radius) >= 0 && (threadIdx.x - radius) < BLOCK) &&
+       ((threadIdx.y - radius) >= 0 && (threadIdx.y - radius) < BLOCK)) {
       // Do Convolution:
       for(int b = 0; b < B; ++b) {
         for(int m = 0; m < M; m++) {
@@ -90,7 +90,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   const int block = BLOCK + 2*radius;
 
   // Set the kernel dimensions
-  dim3 gridDim(ceil((float)(W-2*radius)/(BLOCK)), ceil((float)(H-2*radius)/(BLOCK)), 1);
+  dim3 gridDim(ceil((float)(W-2*radius)/((float)BLOCK)), ceil((float)(H-2*radius)/((float)BLOCK)), 1);
   dim3 blockDim(block, block, 1);
 
   // Call the kernel
