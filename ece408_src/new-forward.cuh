@@ -21,6 +21,9 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
   We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
   */
 
+  __shared__ float in_tile[BLOCK][BLOCK];
+  __shared__ float out_tile[BLOCK][BLOCK];
+
   const int radius = (K-1)/2;
   // Calculate output X and Y for the thread
   const int x_out = blockIdx.x*BLOCK + (threadIdx.x - (K-1)/2);
@@ -38,6 +41,7 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 
   // Verify Output is Valid
   if((x_out >= 0 && x_out < W_out) && (y_out >= 0 && y_out < H_out)) {
+    // Load into shared memory 
     // Check if the thread is a halo thread
     if(((threadIdx.x - radius) >= 0 && (threadIdx.x - radius) < BLOCK) &&
        ((threadIdx.y - radius) >= 0 && (threadIdx.y - radius) < BLOCK)) {
