@@ -46,8 +46,11 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
         for(int m = 0; m < M; m++) {
           //y[b][m][y_out][x_out] = 0;
           y4d(b,m,y_out,x_out) = 0;
+#pragma unroll
           for(int c = 0; c < C; c++) {
+#pragma unroll
             for(int p = 0; p < K; p++) {
+#pragma unroll
               for(int q = 0; q < K; q++) {
                 //y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
                 y4d(b,m,y_out,x_out) += x4d(b,c,y_out+p,x_out+q) * k4d(m,c,p,q);
