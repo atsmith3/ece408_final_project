@@ -155,5 +155,6 @@ int run_baseline() {
 
   if(!y1.write("data/y1b.raw")) return -1;
   if(!y2.write("data/y2b.raw")) return -1;
+
   return 0;
 }

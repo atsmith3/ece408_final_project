@@ -89,8 +89,6 @@ int run_shared_mem() {
   Tensor x2;
   Tensor y2;
 
-  //generate_random();
-
   if(!y1.create(1000, 12, 66, 66)) return -1;
   if(!y2.create(1000, 24, 29, 29)) return -1;
 
@@ -102,6 +100,7 @@ int run_shared_mem() {
   std::chrono::high_resolution_clock::time_point t1;
   std::chrono::high_resolution_clock::time_point t2;
   std::chrono::duration<double> time_span;
+
   t1 = std::chrono::high_resolution_clock::now();
   forward_shared_mem(y1, x1, w1);
   t2 = std::chrono::high_resolution_clock::now();
@@ -118,5 +117,6 @@ int run_shared_mem() {
 
   if(!y1.write("data/y1_sm.raw")) return -1;
   if(!y2.write("data/y2_sm.raw")) return -1;
+
   return 0;
 }
