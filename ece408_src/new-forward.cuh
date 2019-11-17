@@ -74,6 +74,7 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
         }
       }
     }
+    __syncthreads();
   }
 
 
