@@ -88,7 +88,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   const int radius = (K-1)/2;
   const int block = BLOCK + 2*radius;
-
+  
   // Set the kernel dimensions
   dim3 gridDim(ceil((float)(W-2*radius)/((float)BLOCK)), ceil((float)(H-2*radius)/((float)BLOCK)), 1);
   dim3 blockDim(block, block, 1);
@@ -99,7 +99,6 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-
 }
 
 /* 
