@@ -1,3 +1,5 @@
+#include <chrono>
+
 #include "baseline.h"
 
 #define BLOCK 16
@@ -114,5 +116,44 @@ int create_golden() {
 
   if(!y1.write("data/y1.raw")) return -1;
   if(!y2.write("data/y2.raw")) return -1;
+  return 0;
+}
+
+int run_baseline() {
+  Tensor w1;
+  Tensor x1;
+  Tensor y1;
+  Tensor w2;
+  Tensor x2;
+  Tensor y2;
+
+  if(!y1.create(1000, 12, 66, 66)) return -1;
+  if(!y2.create(1000, 24, 29, 29)) return -1;
+
+  if(!x1.read("data/x1.raw")) return -1;
+  if(!w1.read("data/w1.raw")) return -1;
+  if(!x2.read("data/x2.raw")) return -1;
+  if(!w2.read("data/w2.raw")) return -1;
+
+  std::chrono::high_resolution_clock::time_point t1;
+  std::chrono::high_resolution_clock::time_point t2;
+  std::chrono::duration<double> time_span;
+
+  t1 = std::chrono::high_resolution_clock::now();
+  forward_baseline(y1, x1, w1);
+  t2 = std::chrono::high_resolution_clock::now();
+  time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t2-t1);
+  std::cout << "Op1 Baseline: " << time_span.count() << " seconds\n";
+  y1.copyToHost();
+
+  t1 = std::chrono::high_resolution_clock::now();
+  forward_baseline(y2, x2, w2);
+  t2 = std::chrono::high_resolution_clock::now();
+  time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t2-t1);
+  std::cout << "Op2 Baseline: " << time_span.count() << " seconds\n";
+  y2.copyToHost();
+
+  if(!y1.write("data/y1b.raw")) return -1;
+  if(!y2.write("data/y2b.raw")) return -1;
   return 0;
 }

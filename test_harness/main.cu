@@ -6,7 +6,9 @@
 
 #include "tensor.h"
 #include "baseline.h"
+#include "shared_mem.h"
 
 int main(int argc, char **argv) {
-  return create_golden();
+  run_baseline();
+  return run_shared_mem();
 }

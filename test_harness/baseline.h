@@ -10,7 +10,7 @@
 #include "tensor.h"
 
 void forward_baseline(Tensor &y, const Tensor &x, const Tensor &w);
-void generate_random();
 int create_golden();
+int run_baseline();
 
 #endif
