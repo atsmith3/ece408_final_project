@@ -103,6 +103,14 @@ public:
   int size() {
     return shape_[0]*shape_[1]*shape_[2]*shape_[3];
   }
+
+  void copyToDevice() {
+    cudaMemcpy(dptr_, hptr_, shape_[0]*shape_[1]*shape_[2]*shape_[3]*sizeof(float), cudaMemcpyHostToDevice);
+  }
+  
+  void copyToHost() {
+    cudaMemcpy(hptr_, dptr_, shape_[0]*shape_[1]*shape_[2]*shape_[3]*sizeof(float), cudaMemcpyDeviceToHost);
+  }
 };
 
 #define BLOCK 16
@@ -198,10 +206,16 @@ int main(int argc, char **argv) {
 
   Tensor w;
   Tensor x;
+  Tensor y;
 
-  if(!x.read(argv[1])) return -1;
-  if(!w.read(argv[2])) return -1;
-  if(!x.write("testx.raw")) return -1;
-  if(!w.write("testw.raw")) return -1;
+  if(!y.create(10000, 12, 66, 66)) return -1;
+
+  if(!x.read("data/x1.raw")) return -1;
+  if(!w.read("data/w1.raw")) return -1;
+
+  forward(y, x, w);
+  y.copyToHost();
+
+  if(!y.write("data/y1.raw")) return -1;
   return 0;
 }
