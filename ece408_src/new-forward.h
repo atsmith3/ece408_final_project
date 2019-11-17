@@ -25,6 +25,9 @@ void forward(mshadow::Tensor<cpu, 4, DType> &y, const mshadow::Tensor<cpu, 4, DT
   const int H = x.shape_[2] - K + 1;
   const int W = x.shape_[3] - K + 1;
 
+  std::cout << "<B,M,C> = <" << B << "," << M << "," << C << ">\n"; 
+  std::cout << std::flush;
+
   for(int b = 0; b < B; ++b) {
     for(int m = 0; m < M; m++) {
       for(int h = 0; h < H; h++) {
