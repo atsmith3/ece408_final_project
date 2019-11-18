@@ -98,8 +98,6 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   const int block = BLOCK + K - 1;
 
-  std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n\n" << B << " " << M  << " " << C << " " << K << " " << H << " " << W << "\n\n\n\n...............................";
-
   // Set the kernel dimensions
   cudaMemcpyToSymbol(kernel, w.dptr_, M*C*K*K*sizeof(float));
   cudaMemset((void*)y.dptr_, 0, B*M*H_out*W_out*sizeof(float));
@@ -112,7 +110,6 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-
 }
 
 /* 

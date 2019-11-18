@@ -1,4 +1,7 @@
 *.pyc
+*.o
+*.d
+forward
 
 # vim
 .*.swp
@@ -7,5 +10,8 @@
 *.aux
 report.log
 *.out
+
+#data
+*.raw
 
 rai-linux-amd64
