@@ -14,15 +14,7 @@ namespace op
 
 __constant__ float kernel[24*12*5*5];
 
-__global__ void forward_kernel(float *y, const float *x, const float *k, const int B, const int M, const int C, const int H, const int W, const int K)
-{
-
-  /*
-  Modify this function to implement the forward pass described in Chapter 16.
-  We have added an additional dimension to the tensors to support an entire mini-batch
-  The goal here is to be correct AND fast.
-  We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
-  */
+__global__ void forward_kernel(float *y, const float *x, const float *k, const int B, const int M, const int C, const int H, const int W, const int K) {
   __shared__ float in_tile[7][12][12];
 
   // Calculate output X and Y for the thread
@@ -33,12 +25,10 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
 
-// An example use of these macros:
-// float a = y4d(0,0,0,0)
-// y4d(0,0,0,0) = a
 #define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
 #define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
 #define k4d(i3, i2, i1, i0) kernel[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
+//#define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 
   float temp = 0;
 
@@ -53,7 +43,9 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
       if(tx < W_out && ty < H_out && tc < C) {
         if(threadIdx.x < BLOCK && threadIdx.y < BLOCK) {
           temp = 0;
+#pragma unroll
           for(int p = 0; p < K; p++) {
+#pragma unroll
             for(int q = 0; q < K; q++) {
               //y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
               //temp += x4d(b,tc,ty+p,tx+q) * k4d(m,tc,p,q);
@@ -66,8 +58,6 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
     }
     __syncthreads();
   }
-
-
 #undef y4d
 #undef x4d
 #undef k4d
@@ -100,7 +90,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   // Set the kernel dimensions
   cudaMemcpyToSymbol(kernel, w.dptr_, M*C*K*K*sizeof(float));
-  cudaMemset((void*)y.dptr_, 0, B*M*H_out*W_out*sizeof(float));
+  //cudaMemset((void*)y.dptr_, 0, B*M*H_out*W_out*sizeof(float));
   dim3 gridDim(ceil((float)(W-K+1)/((float)BLOCK)), ceil((float)(H-K+1)/((float)BLOCK)), ceil((float)(C)/(float)C_BLOCK));
   dim3 blockDim(block, block, C_BLOCK);
 
