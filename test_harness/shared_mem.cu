@@ -1,6 +1,7 @@
 #include <chrono>
 
 #include "shared_mem.h"
+#include <cuda_profiler_api.h>
 
 #define BLOCK 8
 #define C_BLOCK 7
@@ -8,12 +9,12 @@
 __constant__ float kernel[24*12*5*5];
 
 __global__ void forward_kernel_shared_mem(float *y, const float *x, const float *k, const int B, const int M, const int C, const int H, const int W, const int K) {
-  __shared__ float in_tile[12][12][12];
+  __shared__ float in_tile[7][12][12];
 
-  const int radius = (K-1)/2;
-  const int x_out = blockIdx.x*BLOCK + (threadIdx.x - radius);
-  const int y_out = blockIdx.y*BLOCK + (threadIdx.y - radius);
-  const int c = blockIdx.z*blockDim.z + threadIdx.z;
+  // Calculate output X and Y for the thread
+  const int tx = blockIdx.x*BLOCK + threadIdx.x;
+  const int ty = blockIdx.y*BLOCK + threadIdx.y;
+  const int tc = blockIdx.z*blockDim.z + threadIdx.z;
 
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
@@ -21,33 +22,31 @@ __global__ void forward_kernel_shared_mem(float *y, const float *x, const float 
 #define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
 #define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
 #define k4d(i3, i2, i1, i0) kernel[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
-
-  const int tx = threadIdx.x - radius;
-  const int ty = threadIdx.y - radius;
-
-  const int ix = threadIdx.x + blockIdx.x*BLOCK;
-  const int iy = threadIdx.y + blockIdx.y*BLOCK;
-  const int ic = threadIdx.z + blockIdx.z*blockDim.z;
+//#define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 
   float temp = 0;
 
+  // Verify Output is Valid
   for(int b = 0; b < B; ++b) {
-    if(ix < W && iy < H && ic < C) {
-      in_tile[threadIdx.z][threadIdx.y][threadIdx.x] = x4d(b,ic,iy,ix);
+    // Load Input Tile:
+    if(tx < W && ty < H && tc < C) {
+      in_tile[threadIdx.z][threadIdx.y][threadIdx.x] = x4d(b,tc,ty,tx);
     }
     __syncthreads();
     for(int m = 0; m < M; m++) {
-      if((x_out >= 0 && x_out < W_out) && (y_out >= 0 && y_out < H_out)) {
-        if(((tx) >= 0 && (tx) < BLOCK) && ((ty) >= 0 && (ty) < BLOCK)) {
+      if(tx < W_out && ty < H_out && tc < C) {
+        if(threadIdx.x < BLOCK && threadIdx.y < BLOCK) {
           temp = 0;
-          if(c < C) {
-            for(int p = 0; p < K; p++) {
-              for(int q = 0; q < K; q++) {
-                temp += in_tile[threadIdx.z][ty+p][tx+q] * k4d(m,c,p,q);
-              }
+#pragma unroll
+          for(int p = 0; p < K; p++) {
+#pragma unroll
+            for(int q = 0; q < K; q++) {
+              //y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
+              //temp += x4d(b,tc,ty+p,tx+q) * k4d(m,tc,p,q);
+              temp += in_tile[threadIdx.z][threadIdx.y+p][threadIdx.x+q] * k4d(m,tc,p,q);
             }
           }
-          atomicAdd(&(y4d(b,m,y_out,x_out)), temp);
+          atomicAdd(&(y4d(b,m,ty,tx)), temp);
         }
       }
     }
@@ -76,7 +75,9 @@ void forward_shared_mem(Tensor &y, const Tensor &x, const Tensor &w) {
   dim3 blockDim(block, block, C_BLOCK);
 
   // Call the kernel
+  cudaProfilerStart();
   forward_kernel_shared_mem<<<gridDim, blockDim>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
+  cudaProfilerStop();
 
   cudaDeviceSynchronize();
 }

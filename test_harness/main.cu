@@ -9,6 +9,6 @@
 #include "shared_mem.h"
 
 int main(int argc, char **argv) {
-  run_baseline();
+  //run_baseline();
   return run_shared_mem();
 }
