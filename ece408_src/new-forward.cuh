@@ -9,7 +9,7 @@ namespace mxnet
 namespace op
 {
 
-//__constant__ float kernel[24*12*5*5];
+__constant__ float c_kernel[24*12*5*5];
 
 __global__ void generate_unrolled_kernel(float* k, float* k_unrolled, const int M, const int C, const int K) {
 #define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
@@ -88,7 +88,7 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 
 #define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
 #define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
-#define k4d(i3, i2, i1, i0) kernel[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
+#define k4d(i3, i2, i1, i0) c_kernel[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 //#define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 
   float temp = 0;
@@ -127,9 +127,9 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 #define MM_TILE 32
 
 __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
-                                     int numIRows, int numIColumns,
-                                     int numORows, int numOColumns,
-                                     int numKRows, int numKColumns,
+                                     int numInRows, int numInColumns,
+                                     int numOutRows, int numOutColumns,
+                                     int numKernelRows, int numKernelColumns,
                                      int B) {
     
   __shared__ float subTileKernel[MM_TILE][MM_TILE];
@@ -201,7 +201,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
 
-  const int block = BLOCK + K - 1;
+  //const int block = BLOCK + K - 1;
 
   float* x_unrolled;
   float* y_unrolled;
@@ -212,27 +212,27 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   cudaMalloc(&w_unrolled, M*C*K*K*sizeof(float));
 
   // Format Inputs:
-  dim3 gridDim(ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)));
-  dim3 blockDim(MM_TILE, MM_TILE);
-  generate_unrolled_kernel<<<gridDim, blockDim>>>(w.dptr_, w_unrolled, M, C, K);
+  dim3 gridDimUK(ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)));
+  dim3 blockDimUK(MM_TILE, MM_TILE);
+  generate_unrolled_kernel<<<gridDimUK, blockDimUK>>>(w.dptr_, w_unrolled, M, C, K);
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
   
-  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(B)/(float)1));
-  dim3 blockDim(MM_TILE, MM_TILE, 1);
-  generate_unrolled<<<gridDim, blockDim>>>(x.dptr_, x_unrolled, B, C, H, W, K);
+  dim3 gridDimX(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDimX(MM_TILE, MM_TILE, 1);
+  generate_unrolled<<<gridDimX, blockDimX>>>(x.dptr_, x_unrolled, B, C, H, W, K);
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
 
   // Mat Mul:
-  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
-  dim3 blockDim(MM_TILE, MM_TILE, 1);
-  matrixMultiplyShared<<<gridDim, blockDim>>>(x_unrolled, y_unrolled, w_unrolled, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B);
+  dim3 gridDimMM(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDimMM(MM_TILE, MM_TILE, 1);
+  matrixMultiplyShared<<<gridDimMM, blockDimMM>>>(x_unrolled, y_unrolled, w_unrolled, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B);
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
 
 
   // Format Output:
-  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
-  dim3 blockDim(MM_TILE, MM_TILE, 1);
-  generate_rolled<<<gridDim, blockDim>>>(y.dptr_, y_unrolled, B, M, H, W, K);
+  dim3 gridDimY(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDimY(MM_TILE, MM_TILE, 1);
+  generate_rolled<<<gridDimY, blockDimY>>>(y.dptr_, y_unrolled, B, M, H, W, K);
 
   // Set the kernel dimensions
   //cudaMemcpyToSymbol(kernel, w_unrolled, M*C*K*K*sizeof(float));
