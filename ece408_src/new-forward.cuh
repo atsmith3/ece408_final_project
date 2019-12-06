@@ -9,10 +9,71 @@ namespace mxnet
 namespace op
 {
 
+//__constant__ float kernel[24*12*5*5];
+
+__global__ void generate_unrolled_kernel(float* k, float* k_unrolled, const int M, const int C, const int K) {
+#define k4d(i3, i2, i1, i0) k[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
+#define ku2d(i1, i0) k_unrolled[(i1) * (K*K*C) + i0]
+  int x_i = threadIdx.x + blockDim.x*blockIdx.x;
+  int y_i = threadIdx.y + blockDim.y*blockIdx.y;
+
+  int m = y_i;
+  int c = x_i/(K*K);
+  int x_j = (x_i%(K*K))%K;
+  int y_j = (x_i%(K*K))/K;
+
+  if(x_i < K*K*C && y_i < M) {
+    ku2d(y_i,x_i) = k4d(m,c,y_j,x_j);
+  }
+#undef k4d
+#undef ku2d
+}
+
+__global__ void generate_unrolled(float* x, float* x_unrolled, const int B, const int C, const int H, const int W, const int K) {
+  int H_out = H - K + 1;
+  int W_out = H - K + 1;
+  int b_i = threadIdx.z + blockDim.z*blockIdx.z;
+  int x_i = threadIdx.x + blockDim.x*blockIdx.x;
+  int y_i = threadIdx.y + blockDim.y*blockIdx.y;
+  int Y_u = K*K*C;
+  int X_u = H_out*W_out;
+  int c = y_i/(K*K);
+  int x_k = x_i%W_out;
+  int y_k = x_i/W_out;
+  int x_j = (y_i%(K*K))%K + x_k;
+  int y_j = (y_i%(K*K))/K + y_k;
+#define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
+#define xu3d(i2, i1, i0) x_unrolled[(i2) * (Y_u * X_u) + (i1) * (X_u) + i0]
+  if(b_i < B && x_i < X_u && y_i < Y_u) {
+    xu3d(b_i,y_i,x_i) = x4d(b_i,c,y_j,x_j);
+  }
+#undef x4d
+#undef xu3d
+}
+
+__global__ void generate_rolled(float* y, float* y_unrolled, const int B, const int M, const int H, const int W, const int K) {
+  int H_out = H - K + 1;
+  int W_out = H - K + 1;
+  int b_i = threadIdx.z + blockDim.z*blockIdx.z;
+  int x_i = threadIdx.x + blockDim.x*blockIdx.x;
+  int y_i = threadIdx.y + blockDim.y*blockIdx.y;
+  int Y_u = M;
+  int X_u = H_out*W_out;
+  int m = y_i;
+  int x_j = x_i%W_out;
+  int y_j = x_i/W_out;
+#define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
+#define yu3d(i2, i1, i0) y_unrolled[(i2) * (Y_u * X_u) + (i1) * (X_u) + i0]
+  if(b_i < B && x_i < X_u && y_i < Y_u) {
+    y4d(b_i,m,y_j,x_j) = yu3d(b_i,y_i,x_i);
+  }
+#undef y4d
+#undef yu3d
+}
+
 #define BLOCK 8
 #define C_BLOCK 7
 
-__constant__ float kernel[24*12*5*5];
 
 __global__ void forward_kernel(float *y, const float *x, const float *k, const int B, const int M, const int C, const int H, const int W, const int K) {
   __shared__ float in_tile[7][12][12];
@@ -63,6 +124,60 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 #undef k4d
 }
 
+#define MM_TILE 32
+
+__global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
+                                     int numIRows, int numIColumns,
+                                     int numORows, int numOColumns,
+                                     int numKRows, int numKColumns,
+                                     int B) {
+    
+  __shared__ float subTileKernel[MM_TILE][MM_TILE];
+  __shared__ float subTileIn[MM_TILE][MM_TILE];
+  
+  // Get thread Infos
+  int bx = blockIdx.x;
+  int by = blockIdx.y;
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int batch_i = threadIdx.z + blockDim.z+blockIdx.z;
+  
+  // Identify element of C being computed
+  int row = by*MM_TILE + ty;
+  int col = bx*MM_TILE + tx;
+  
+  // Initialize partial sum to 0
+  float partialOut = 0.0;
+  
+  // Loop over the tiles.
+  if(batch_i < B) {
+    for(int i = 0; i < ceil((float)numKernelColumns/MM_TILE); i++) {
+      // Collaboratively load the tile
+      int a_x = i*MM_TILE + tx;
+      int a_y = row;
+      int b_x = col;
+      int b_y = i*MM_TILE + ty;
+      
+      if(a_x < numKernelColumns) {
+        subTileKernel[ty][tx] = kernel[a_y*numKernelColumns + a_x];
+      }
+      if(b_y < numInRows) {
+        subTileIn[ty][tx] = in[batch_i*(numInColumns*numInRows) + b_y*numInColumns + b_x];
+      }
+      __syncthreads();
+      for(int k = 0; k < MM_TILE; k++) {
+        if(i*MM_TILE+k < numKernelColumns && row < numOutRows && col < numOutColumns)
+        partialOut += subTileKernel[ty][k]*subTileIn[k][tx];
+      }
+      __syncthreads();
+    }
+    // Before comitting check if its valid
+    if(row < numOutRows && col < numOutColumns) {
+      out[batch_i*(numOutColumns*numOutRows)+ row*numOutColumns + col] = partialOut;
+    }
+  }
+}
+
 /* 
    This function is called by new-inl.h
    Any code you write should be executed by this function.
@@ -88,15 +203,46 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   const int block = BLOCK + K - 1;
 
+  float* x_unrolled;
+  float* y_unrolled;
+  float* w_unrolled;
+
+  cudaMalloc(&x_unrolled, B*C*H*W*sizeof(float));
+  cudaMalloc(&y_unrolled, B*M*H_out*W_out*sizeof(float));
+  cudaMalloc(&w_unrolled, M*C*K*K*sizeof(float));
+
+  // Format Inputs:
+  dim3 gridDim(ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)));
+  dim3 blockDim(MM_TILE, MM_TILE);
+  generate_unrolled_kernel<<<gridDim, blockDim>>>(w.dptr_, w_unrolled, M, C, K);
+  MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
+  
+  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDim(MM_TILE, MM_TILE, 1);
+  generate_unrolled<<<gridDim, blockDim>>>(x.dptr_, x_unrolled, B, C, H, W, K);
+  MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
+
+  // Mat Mul:
+  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDim(MM_TILE, MM_TILE, 1);
+  matrixMultiplyShared<<<gridDim, blockDim>>>(x_unrolled, y_unrolled, w_unrolled, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B);
+  MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
+
+
+  // Format Output:
+  dim3 gridDim(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
+  dim3 blockDim(MM_TILE, MM_TILE, 1);
+  generate_rolled<<<gridDim, blockDim>>>(y.dptr_, y_unrolled, B, M, H, W, K);
+
   // Set the kernel dimensions
-  cudaMemcpyToSymbol(kernel, w.dptr_, M*C*K*K*sizeof(float));
+  //cudaMemcpyToSymbol(kernel, w_unrolled, M*C*K*K*sizeof(float));
   //cudaMemset((void*)y.dptr_, 0, B*M*H_out*W_out*sizeof(float));
-  dim3 gridDim(ceil((float)(W-K+1)/((float)BLOCK)), ceil((float)(H-K+1)/((float)BLOCK)), ceil((float)(C)/(float)C_BLOCK));
-  dim3 blockDim(block, block, C_BLOCK);
+  //dim3 gridDim(ceil((float)(W-K+1)/((float)BLOCK)), ceil((float)(H-K+1)/((float)BLOCK)), ceil((float)(C)/(float)C_BLOCK));
+  //dim3 blockDim(block, block, C_BLOCK);
 
   // Call the kernel
   //forward_kernel<<<gridDim, blockDim, 0, s>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
-  forward_kernel<<<gridDim, blockDim>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
+  //forward_kernel<<<gridDim, blockDim>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
 
   // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
