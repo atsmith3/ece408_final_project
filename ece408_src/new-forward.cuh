@@ -82,7 +82,6 @@ __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
                                      int B, int M, int C, int H, int W, int K) {
   unsigned int H_out = H - K + 1;
   unsigned int W_out = W - K + 1;
-  unsigned int b_i = threadIdx.z + blockDim.z*blockIdx.z;
 #define x4d(i3, i2, i1, i0) in[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
     
   __shared__ float subTileKernel[MM_TILE][MM_TILE];
@@ -93,7 +92,7 @@ __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
   unsigned int by = blockIdx.y;
   unsigned int tx = threadIdx.x;
   unsigned int ty = threadIdx.y;
-  unsigned int batch_i = threadIdx.z + blockDim.z+blockIdx.z;
+  unsigned int batch_i = threadIdx.z + blockDim.z*blockIdx.z;
   
   // Identify element of C being computed
   unsigned int row = by*MM_TILE + ty;
@@ -123,7 +122,7 @@ __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
         subTileKernel[ty][tx] = kernel[a_y*numKernelColumns + a_x];
       }
       if(b_y < numInRows) {
-        subTileIn[ty][tx] = x4d(b_i,c,y_j,x_j);
+        subTileIn[ty][tx] = x4d(batch_i,c,y_j,x_j);
       }
       __syncthreads();
       for(int k = 0; k < MM_TILE; k++) {
