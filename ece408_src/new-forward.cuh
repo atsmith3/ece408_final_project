@@ -52,27 +52,6 @@ __global__ void generate_unrolled(float* x, float* x_unrolled, const int B, cons
 #undef xu3d
 }
 
-__global__ void generate_rolled(float* y, float* y_unrolled, const int B, const int M, const int H, const int W, const int K) {
-  unsigned int H_out = H - K + 1;
-  unsigned int W_out = W - K + 1;
-  unsigned int b_i = threadIdx.z + blockDim.z*blockIdx.z;
-  unsigned int x_i = threadIdx.x + blockDim.x*blockIdx.x;
-  unsigned int y_i = threadIdx.y + blockDim.y*blockIdx.y;
-  unsigned int Y_u = M;
-  unsigned int X_u = H_out*W_out;
-  unsigned int m = y_i;
-  unsigned int x_j = x_i%W_out;
-  unsigned int y_j = x_i/W_out;
-#define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
-#define yu3d(i2, i1, i0) y_unrolled[(i2) * (Y_u * X_u) + (i1) * (X_u) + i0]
-  if(b_i < B && x_i < X_u && y_i < Y_u) {
-    y4d(b_i,m,y_j,x_j) = yu3d(b_i,y_i,x_i);
-  }
-#undef y4d
-#undef yu3d
-}
-
-
 #define MM_TILE 32
 
 __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
@@ -133,7 +112,12 @@ __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
     }
     // Before comitting check if its valid
     if(row < numOutRows && col < numOutColumns) {
-      out[batch_i*(numOutColumns*numOutRows)+ row*numOutColumns + col] = partialOut;
+      unsigned int out_m = row;
+      unsigned int out_x = col%W_out;
+      unsigned int out_y = col/W_out;
+#define y4d(i3, i2, i1, i0) out[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
+      y4d(batch_i,out_m,out_y,out_x) = partialOut;
+#undef y4d
     }
   }
 #undef x4d
@@ -164,12 +148,8 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
 
   //const int block = BLOCK + K - 1;
 
-  //float* x_unrolled;
-  float* y_unrolled;
   float* w_unrolled;
 
-  //MSHADOW_CUDA_CALL(cudaMalloc(&x_unrolled, B*C*K*K*H_out*W_out*sizeof(float)));
-  MSHADOW_CUDA_CALL(cudaMalloc(&y_unrolled, B*M*H_out*W_out*sizeof(float)));
   MSHADOW_CUDA_CALL(cudaMalloc(&w_unrolled, M*C*K*K*sizeof(float)));
 
   // Format Inputs:
@@ -178,22 +158,11 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   generate_unrolled_kernel<<<gridDimUK, blockDimUK>>>(w.dptr_, w_unrolled, M, C, K);
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
   
-  //dim3 gridDimX(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(B)/(float)1));
-  //dim3 blockDimX(MM_TILE, MM_TILE, 1);
-  //generate_unrolled<<<gridDimX, blockDimX>>>(x.dptr_, x_unrolled, B, C, H, W, K);
-  //MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-
   // Mat Mul:
   dim3 gridDimMM(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
   dim3 blockDimMM(MM_TILE, MM_TILE, 1);
-  matrixMultiplyShared<<<gridDimMM, blockDimMM>>>(x.dptr_, y_unrolled, w_unrolled, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B, M, C, H, W, K);
+  matrixMultiplyShared<<<gridDimMM, blockDimMM>>>(x.dptr_, /*y_unrolled*/y.dptr_, w_unrolled, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B, M, C, H, W, K);
   MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-
-
-  // Format Output:
-  dim3 gridDimY(ceil((float)(H_out*W_out)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)), ceil((float)(B)/(float)1));
-  dim3 blockDimY(MM_TILE, MM_TILE, 1);
-  generate_rolled<<<gridDimY, blockDimY>>>(y.dptr_, y_unrolled, B, M, H, W, K);
 
   // Set the kernel dimensions
   //cudaMemcpyToSymbol(kernel, w_unrolled, M*C*K*K*sizeof(float));
@@ -204,8 +173,6 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   // Call the kernel
   //forward_kernel<<<gridDim, blockDim, 0, s>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
   //forward_kernel<<<gridDim, blockDim>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
-  //cudaFree(x_unrolled);
-  cudaFree(y_unrolled);
   cudaFree(w_unrolled);
 
   // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
