@@ -29,29 +29,6 @@ __global__ void generate_unrolled_kernel(float* k, float* k_unrolled, const int 
 #undef ku2d
 }
 
-__global__ void generate_unrolled(float* x, float* x_unrolled, const int B, const int C, const int H, const int W, const int K) {
-  unsigned int H_out = H - K + 1;
-  unsigned int W_out = W - K + 1;
-  unsigned int b_i = threadIdx.z + blockDim.z*blockIdx.z;
-  unsigned int x_i = threadIdx.x + blockDim.x*blockIdx.x;
-  unsigned int y_i = threadIdx.y + blockDim.y*blockIdx.y;
-  unsigned int Y_u = K*K*C;
-  unsigned int X_u = H_out*W_out;
-  unsigned int c = y_i/(K*K);
-  unsigned int x_k = x_i%W_out;
-  unsigned int y_k = x_i/W_out;
-  unsigned int x_j = (y_i%(K*K))%K + x_k;
-  unsigned int y_j = (y_i%(K*K))/K + y_k;
-#define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
-#define xu3d(i2, i1, i0) x_unrolled[(i2) * (Y_u * X_u) + (i1) * (X_u) + i0]
-  //if(b_i < B && x_i < X_u && y_i < Y_u && y_j < H && x_j < W && c < C) {
-  if(b_i < B && x_i < X_u && y_i < Y_u) {
-    xu3d(b_i,y_i,x_i) = x4d(b_i,c,y_j,x_j);
-  }
-#undef x4d
-#undef xu3d
-}
-
 #define MM_TILE 32
 
 __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
@@ -100,12 +77,18 @@ __global__ void matrixMultiplyShared(float *in, float *out, float *kernel,
       if(a_x < numKernelColumns) {
         subTileKernel[ty][tx] = kernel[a_y*numKernelColumns + a_x];
       }
+      else {
+        subTileKernel[ty][tx] = 0;
+      }
       if(b_y < numInRows) {
         subTileIn[ty][tx] = x4d(batch_i,c,y_j,x_j);
       }
+      else {
+        subTileIn[ty][tx] = 0;
+      }
       __syncthreads();
+      #pragma unroll 32
       for(int k = 0; k < MM_TILE; k++) {
-        if(i*MM_TILE+k < numKernelColumns && row < numOutRows && col < numOutColumns)
         partialOut += subTileKernel[ty][k]*subTileIn[k][tx];
       }
       __syncthreads();
