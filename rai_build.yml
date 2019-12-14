@@ -23,4 +23,13 @@ commands:
 #    - nvprof --kernels "::forward:2" --analysis-metrics -o forward2_analysis_sm_ck_lu.nvprof python m4.1.py 10000
 #    - python m4.1.py
 #    - /usr/bin/time python m4.1.py # execute code
-    - python final.py # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
+    - /usr/bin/time python final.py 10000 # execute code
