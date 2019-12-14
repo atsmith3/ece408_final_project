@@ -9,21 +9,30 @@ namespace mxnet
 namespace op
 {
 
-#define BLOCK 8
-#define C_BLOCK 7
+#define BLOCK 32
 
 __constant__ float kernel[24*12*5*5];
 
 __global__ void forward_kernel(float *y, const float *x, const float *k, const int B, const int M, const int C, const int H, const int W, const int K) {
-  __shared__ float in_tile[7][12][12];
+  __shared__ float in_tile[BLOCK][BLOCK];
 
   // Calculate output X and Y for the thread
-  const int tx = blockIdx.x*BLOCK + threadIdx.x;
-  const int ty = blockIdx.y*BLOCK + threadIdx.y;
-  const int tc = blockIdx.z*blockDim.z + threadIdx.z;
-
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
+
+  const int out_block = BLOCK - K + 1;
+  const int channel_blocks = ceil(((float)H_out)/((float)out_block));
+  const int tx = blockIdx.x*out_block + threadIdx.x;
+//  const int ty = blockIdx.y*out_block + threadIdx.y;
+  const int tz = blockIdx.z*blockDim.z + threadIdx.z;
+
+  const int in_x = tx;
+  const int in_y = (blockIdx.y % channel_blocks) * out_block + threadIdx.y;
+  const int in_c = blockIdx.y / channel_blocks;
+  const int in_b = tz;
+
+  const int out_x = in_x;
+  const int out_y = in_y;
 
 #define y4d(i3, i2, i1, i0) y[(i3) * (M * H_out * W_out) + (i2) * (H_out * W_out) + (i1) * (W_out) + i0]
 #define x4d(i3, i2, i1, i0) x[(i3) * (C * H * W) + (i2) * (H * W) + (i1) * (W) + i0]
@@ -32,32 +41,23 @@ __global__ void forward_kernel(float *y, const float *x, const float *k, const i
 
   float temp = 0;
 
-  // Verify Output is Valid
-  for(int b = 0; b < B; ++b) {
-    // Load Input Tile:
-    if(tx < W && ty < H && tc < C) {
-      in_tile[threadIdx.z][threadIdx.y][threadIdx.x] = x4d(b,tc,ty,tx);
-    }
-    __syncthreads();
-    for(int m = 0; m < M; m++) {
-      if(tx < W_out && ty < H_out && tc < C) {
-        if(threadIdx.x < BLOCK && threadIdx.y < BLOCK) {
-          temp = 0;
-#pragma unroll
-          for(int p = 0; p < K; p++) {
-#pragma unroll
-            for(int q = 0; q < K; q++) {
-              //y[b][m][y_out][x_out] += x[b][c][y_out + p][x_out + q] * k[m][c][p][q];
-              //temp += x4d(b,tc,ty+p,tx+q) * k4d(m,tc,p,q);
-              temp += in_tile[threadIdx.z][threadIdx.y+p][threadIdx.x+q] * k4d(m,tc,p,q);
-            }
-          }
-          atomicAdd(&(y4d(b,m,ty,tx)), temp);
-        }
-      }
-    }
-    __syncthreads();
+  if(in_x < W && in_y < H) {
+    in_tile[threadIdx.y][threadIdx.x] = x4d(in_b, in_c, in_y, in_x);
   }
+  __syncthreads();
+  if(threadIdx.x < out_block && threadIdx.y < out_block && out_x < W_out && out_y < H_out) {
+    for(int m = 0; m < M; m++) {
+      int out_m = (m + in_c) % M;
+      temp = 0;
+      for(int p = 0; p < K; p++) {
+        for(int q = 0; q < K; q++) {
+          temp += in_tile[threadIdx.y + p][threadIdx.x + q] * k4d(out_m, in_c, p, q);
+	}
+      }
+      atomicAdd(&y4d(in_b, out_m, out_y, out_x), temp);
+    }
+  }
+
 #undef y4d
 #undef x4d
 #undef k4d
@@ -86,13 +86,13 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
 
-  const int block = BLOCK + K - 1;
+  const int out_block = BLOCK - K + 1;
 
   // Set the kernel dimensions
   cudaMemcpyToSymbol(kernel, w.dptr_, M*C*K*K*sizeof(float));
   //cudaMemset((void*)y.dptr_, 0, B*M*H_out*W_out*sizeof(float));
-  dim3 gridDim(ceil((float)(W-K+1)/((float)BLOCK)), ceil((float)(H-K+1)/((float)BLOCK)), ceil((float)(C)/(float)C_BLOCK));
-  dim3 blockDim(block, block, C_BLOCK);
+  dim3 blockDim(BLOCK, BLOCK, 1);
+  dim3 gridDim(ceil(((float)W_out)/((float)out_block)), ceil(((float)(H_out))/((float)out_block))*C, B);
 
   // Call the kernel
   //forward_kernel<<<gridDim, blockDim, 0, s>>>(y.dptr_,x.dptr_,w.dptr_, B,M,C,H,W,K);
