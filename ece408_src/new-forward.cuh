@@ -11,7 +11,7 @@ namespace op
 
 __constant__ float c_kernel[24*12*5*5];
 
-#define BLOCK 32
+#define BLOCK 16
 #define COARSENING_FACTOR 2
 
 __global__ void forward_kernel(float* __restrict__ y, const float* __restrict__ x, const float* __restrict__ k, const int B, const int M, const int C, const int H, const int W, const int K) {
@@ -19,14 +19,14 @@ __global__ void forward_kernel(float* __restrict__ y, const float* __restrict__ 
   const int H_out = H - K + 1;
   const int W_out = W - K + 1;
 
-  const int out_block = BLOCK - K + 1;
+  const int out_block = COARSENING_FACTOR*(BLOCK - K + 1);
   const int channel_blocks = ceil(((float)H_out)/((float)out_block));
-  const int tx = blockIdx.x*out_block + threadIdx.x;
+  const int tx = blockIdx.x*out_block + COARSENING_FACTOR*threadIdx.x;
 
   const int tz = blockIdx.z*blockDim.z + threadIdx.z;
 
   const int in_x = tx;
-  const int in_y = (blockIdx.y % channel_blocks) * out_block + threadIdx.y;
+  const int in_y = (blockIdx.y % channel_blocks) * out_block + COARSENING_FACTOR*threadIdx.y;
   const int in_c = blockIdx.y / channel_blocks;
   const int in_b = tz;
 
@@ -44,12 +44,12 @@ __global__ void forward_kernel(float* __restrict__ y, const float* __restrict__ 
     #pragma unroll
     for(int tc_x = 0; tc_x < COARSENING_FACTOR; tc_x++) {
       if(in_x + tc_x < W && in_y + tc_y < H) {
-        in_tile[threadIdx.y+tc_y][threadIdx.x+tc_x] = x4d(in_b, in_c, (in_y + tc_y), (in_x + tc_x));
+        in_tile[COARSENING_FACTOR*threadIdx.y+tc_y][COARSENING_FACTOR*threadIdx.x+tc_x] = x4d(in_b, in_c, (in_y + tc_y), (in_x + tc_x));
       }
     }
   }
   __syncthreads();
-  if(threadIdx.x < out_block && threadIdx.y < out_block && out_x < W_out && out_y < H_out) {
+  if(COARSENING_FACTOR*threadIdx.x < out_block && COARSENING_FACTOR*threadIdx.y < out_block && out_x < W_out && out_y < H_out) {
     for(int m = 0; m < M; m++) {
       #pragma unroll
       for(int tc_y = 0; tc_y < COARSENING_FACTOR; tc_y++) {
@@ -64,7 +64,7 @@ __global__ void forward_kernel(float* __restrict__ y, const float* __restrict__ 
           for(int tc_y = 0; tc_y < COARSENING_FACTOR; tc_y++) {
             #pragma unroll
             for(int tc_x = 0; tc_x < COARSENING_FACTOR; tc_x++) {
-              temp[tc_y][tc_x] += in_tile[threadIdx.y + tc_y + p][threadIdx.x + tc_x + q] * k4d(m, in_c, p, q);
+              temp[tc_y][tc_x] += in_tile[COARSENING_FACTOR*threadIdx.y + tc_y + p][COARSENING_FACTOR*threadIdx.x + tc_x + q] * k4d(m, in_c, p, q);
             }
           }
         }
@@ -225,7 +225,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   }
   
   if(op == 1) {
-    const int out_block = (COARSENING_FACTOR*BLOCK) - K + 1;
+    const int out_block = COARSENING_FACTOR*(BLOCK - K + 1);
 
     // Set the kernel dimensions
     cudaMemcpyToSymbol(c_kernel, w.dptr_, M*C*K*K*sizeof(float));
