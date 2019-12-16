@@ -104,6 +104,7 @@ __global__ void generate_unrolled_kernel(float* __restrict__ k, float* __restric
 
 #define MM_TILE 8
 #define MM_CF 4     // Coarsening Factor
+#define MM_CF_Y 4     // Coarsening Factor
 
 __global__ void matrixMultiplyShared(float* __restrict__ in, float* __restrict__ out, float* __restrict__ kernel,
                                      int numInRows, int numInColumns,
@@ -160,19 +161,12 @@ __global__ void matrixMultiplyShared(float* __restrict__ in, float* __restrict__
           unsigned int x_j = (b_y%(K*K))%K + x_k;
           unsigned int y_j = (b_y%(K*K))/K + y_k;
 
-          unsigned int k_m = a_y;
-          unsigned int k_c = a_x/(K*K);
-          unsigned int k_x_j = (a_x%(K*K))%K;
-          unsigned int k_y_j = (a_x%(K*K))/K;
-
-#define k4d(i3, i2, i1, i0) c_kernel[(i3) * (C * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
           if(a_x < numKernelColumns) {
-            subTileKernel[ty+tc_y][tx+tc_x] = k4d(k_m, k_c, k_y_j, k_x_j);
+            subTileKernel[ty+tc_y][tx+tc_x] = kernel[a_y*numKernelColumns + a_x];
           }
           else {
             subTileKernel[ty+tc_y][tx+tc_x] = 0;
           }
-#undef k4d
           if(b_y < numInRows) {
             subTileIn[ty+tc_y][tx+tc_x] = x4d(batch_i,c,y_j,x_j);
           }
@@ -239,23 +233,23 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y, const mshadow::Tenso
   const int W_out = W - K + 1;
 
   if(op == 2) {
-    //float* w_unrolled;
+    float* w_unrolled;
 
-    //MSHADOW_CUDA_CALL(cudaMalloc(&w_unrolled, M*C*K*K*sizeof(float)));
+    MSHADOW_CUDA_CALL(cudaMalloc(&w_unrolled, M*C*K*K*sizeof(float)));
 
     // Format Inputs:
-    //dim3 gridDimUK(ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)));
-    //dim3 blockDimUK(MM_TILE, MM_TILE);
-    //generate_unrolled_kernel<<<gridDimUK, blockDimUK>>>(w.dptr_, w_unrolled, M, C, K);
-    //MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
+    dim3 gridDimUK(ceil((float)(K*K*C)/((float)MM_TILE)), ceil((float)(M)/((float)MM_TILE)));
+    dim3 blockDimUK(MM_TILE, MM_TILE);
+    generate_unrolled_kernel<<<gridDimUK, blockDimUK>>>(w.dptr_, w_unrolled, M, C, K);
+    MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
     
     // Mat Mul:
-    cudaMemcpyToSymbol(c_kernel, w.dptr_, M*C*K*K*sizeof(float));
+    //cudaMemcpyToSymbol(c_kernel, w.dptr_, M*C*K*K*sizeof(float));
     dim3 gridDimMM(ceil((float)(H_out*W_out)/((float)MM_CF*MM_TILE)), ceil((float)(M)/((float)MM_CF*MM_TILE)), ceil((float)(B)/(float)1));
     dim3 blockDimMM(MM_TILE, MM_TILE, 1);
     matrixMultiplyShared<<<gridDimMM, blockDimMM>>>(x.dptr_, /*y_unrolled*/y.dptr_, w.dptr_, K*K*C, H_out*W_out, M, H_out*W_out, M, K*K*C, B, M, C, H, W, K);
     MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-    //cudaFree(w_unrolled);
+    cudaFree(w_unrolled);
     op++;
   }
   
