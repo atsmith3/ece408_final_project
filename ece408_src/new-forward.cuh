@@ -12,7 +12,7 @@ namespace op
 __constant__ float c_kernel[24*12*5*5];
 
 #define BLOCK 16
-#define COARSENING_FACTOR 2
+#define COARSENING_FACTOR 8
 
 __global__ void forward_kernel(float* __restrict__ y, const float* __restrict__ x, const float* __restrict__ k, const int B, const int M, const int C, const int H, const int W, const int K) {
   __shared__ float in_tile[COARSENING_FACTOR*BLOCK][COARSENING_FACTOR*BLOCK];
