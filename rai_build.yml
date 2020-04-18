@@ -33,3 +33,5 @@ commands:
     - /usr/bin/time python final.py 10000 # execute code
     - /usr/bin/time python final.py 10000 # execute code
     - /usr/bin/time python final.py 10000 # execute code
+#    - nvprof --kernels "::forward:1" --analysis-metrics -o forward1_analysis_sm_ck_lu.nvprof python final.py 10000
+#    - nvprof --kernels "::forward:2" --analysis-metrics -o forward2_analysis_sm_ck_lu.nvprof python final.py 10000
